@@ -46,7 +46,7 @@ bitset<32> Instruction::getImmediate() const {
 		return bitset<32>(0); // No immediate value
 	} 
 	else if (opcode == OPCODE_I_TYPE || opcode == OPCODE_LOAD) {
-		// Do sign extension
+		// Sign extension
 		bitset<12> immValue = bitset<12>((instr.to_ulong() >> 20) & 0xFFF); // Extract bits 31-20
 		bitset<32> extendedImmValue;
 		if (immValue[11] == 1) { // Check the sign bit (bit 11)
@@ -56,6 +56,18 @@ bitset<32> Instruction::getImmediate() const {
 		}
 		return extendedImmValue;
 	} 
+	else if (opcode == OPCODE_STORE) {
+		// Extract bits 11-5 and 4-0
+		bitset<12> immValue = bitset<12>(((instr.to_ulong() >> 7) & 0x1F) | ((instr.to_ulong() >> 25) & 0xFE0));
+		bitset<32> extendedImmValue;
+		// Sign extension
+		if (immValue[11] == 1) { 
+			extendedImmValue = bitset<32>(immValue.to_ulong() | 0xFFFFF000); 
+		} else {
+			extendedImmValue = bitset<32>(immValue.to_ulong());
+		}
+		return extendedImmValue;
+	}
 	else if (opcode == OPCODE_LUI) {
 		return bitset<32>((instr.to_ulong() >> 12) & 0xFFFFF); // Extract bits 31-12
 	}
@@ -86,7 +98,7 @@ CPU::CPU(char imem[4096])
 {
 	// Data memory
 	for (int i = 0; i < 4096; i++) {
-		dmemory[i] = 0;
+		dmemory[i] = bitset<8>(0);
 	}
 
 	// Instruction memory
@@ -183,7 +195,14 @@ void CPU::executeInstruction() {
 		aluResult = rs1Value ^ aluSrcValue;
 	} 
 	else if (control.aluOp == ALU_OP_SRAI) {
-		aluResult = rs1Value.to_ulong() >> aluSrcValue.to_ulong();
+		//cout << "SRAI" << endl;
+		//cout << rs1Value.to_ulong() << " >> " << aluSrcValue.to_ulong() << endl;
+		// Sign extend
+		if (rs1Value[31] == 1) {
+			aluResult = (rs1Value.to_ulong() >> aluSrcValue.to_ulong()) | (0xFFFFFFFF << (32 - aluSrcValue.to_ulong()));
+		} else {
+			aluResult = rs1Value.to_ulong() >> aluSrcValue.to_ulong();
+		}
 	}
 	else {
 		cerr << "Invalid ALU operation: " << control.aluOp << endl;
@@ -193,14 +212,46 @@ void CPU::executeInstruction() {
 	cout << "aluResult: " << aluResult.to_ulong() << endl;
 }
 void CPU::memory() {
-
+	unsigned long address = aluResult.to_ulong();
+	if (control.memWrite == 1) { // Store
+        if (control.memSize == 1) { // SW
+			cout << "Store word" << endl;
+            for (int i = 0; i < 4; ++i) {
+				cout << "Writing to address: " << address + i << " value: " << ((rs2Value.to_ulong() >> (i * 8)) & 0xFF) << endl;
+                dmemory[address + i] = (rs2Value.to_ulong() >> (i * 8)) & 0xFF;
+            }
+        } else if (control.memSize == 0) { // SB
+			cout << "Store byte" << endl;
+			cout << "Writing to address: " << address << " value: " << (rs2Value.to_ulong() & 0xFF) << endl;
+            dmemory[address] = rs2Value.to_ulong() & 0xFF;
+        }
+    }
+	else if (control.memRead == 1) { // Load
+		if (control.memSize == 1) { // LW
+			cout << "Load word" << endl;
+			for (int i = 0; i < 4; ++i) {
+				cout << "Reading from address: " << address + i << " value: " << dmemory[address + i].to_ulong() << endl;
+				dataMemValue |= (dmemory[address + i].to_ulong() & 0xFF) << (i * 8);
+			}
+		}
+		else if (control.memSize == 0) { // LB
+			cout << "Load byte" << endl;
+			cout << "Reading from address: " << address << " value: " << dmemory[address].to_ulong() << endl;
+			dataMemValue = dmemory[address].to_ulong() & 0xFF;
+		}
+	}
 }
 void CPU::writeBack() {
+	if (control.memWrite == 1) {
+		return;
+	}
+
 	if (control.memToReg == 0) {
 		if (control.regWrite == 1) {
 			writeRegister(rd.to_ulong(), aluResult);
 		}
-	} else {
+	} 
+	else { 
 		if (control.regWrite == 1) {
 			writeRegister(rd.to_ulong(), dataMemValue);
 		}
@@ -217,6 +268,7 @@ ControlUnit::ControlUnit(bitset<7> opcode, bitset<3> funct3, bitset<7> funct7) {
 		memRead = 0;
 		memWrite = 0;
 		memToReg = 0;
+		memSize = 0;
 
 		aluOp = aluOpControl(funct3, funct7);
 	}
@@ -227,6 +279,7 @@ ControlUnit::ControlUnit(bitset<7> opcode, bitset<3> funct3, bitset<7> funct7) {
 		memRead = 0;
 		memWrite = 0;
 		memToReg = 0;
+		memSize = 0;
 
 		aluOp = aluOpControl(funct3, funct7);
 	}
@@ -237,6 +290,7 @@ ControlUnit::ControlUnit(bitset<7> opcode, bitset<3> funct3, bitset<7> funct7) {
         memRead = 0;
         memWrite = 0;
         memToReg = 0;
+		memSize = 0;
 
         aluOp = ALU_OP_LUI; 
     }
@@ -248,6 +302,8 @@ ControlUnit::ControlUnit(bitset<7> opcode, bitset<3> funct3, bitset<7> funct7) {
 		memWrite = 0;
 		memToReg = 1;
 
+		memSize = memSizeControl(funct3);
+
 		aluOp = ALU_OP_ADD; 
 	}
 	else if (opcode == OPCODE_STORE) { // Store
@@ -258,6 +314,8 @@ ControlUnit::ControlUnit(bitset<7> opcode, bitset<3> funct3, bitset<7> funct7) {
 		memWrite = 1;
 		memToReg = 0;
 
+		memSize = memSizeControl(funct3);
+
 		aluOp = ALU_OP_ADD; // add
 	}
 	else if (opcode == OPCODE_BRANCH) { // Branch
@@ -267,6 +325,7 @@ ControlUnit::ControlUnit(bitset<7> opcode, bitset<3> funct3, bitset<7> funct7) {
 		memRead = 0;
 		memWrite = 0;
 		memToReg = 0;
+		memSize = 0;
 
 		aluOp = ALU_OP_SUB;
 	}
@@ -277,6 +336,7 @@ ControlUnit::ControlUnit(bitset<7> opcode, bitset<3> funct3, bitset<7> funct7) {
 		memRead = 0;
 		memWrite = 0;
 		memToReg = 0;
+		memSize = 0;
 
 		aluOp = ALU_OP_DEFAULT;
 	}
@@ -308,6 +368,18 @@ bitset<4> ControlUnit::aluOpControl(bitset<3> funct3, bitset<7> funct7) {
 	}
 	else {
 		cerr << "Invalid funct7: " << funct7 << endl;
+		exit(1);
+	}
+}
+bitset<1> ControlUnit::memSizeControl(bitset<3> funct3) {
+	if (funct3 == bitset<3>(0x0)) { // byte
+		return bitset<1>(0);
+	}
+	else if (funct3 == bitset<3>(0x2)) { // word
+		return bitset<1>(1);
+	}
+	else {
+		cerr << "Invalid funct3 for data size (used for store/load): " << funct3 << endl;
 		exit(1);
 	}
 }

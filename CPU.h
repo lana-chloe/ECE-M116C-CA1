@@ -37,9 +37,11 @@ public:
 		memWrite = 0;
 		aluSrc = 0;
 		regWrite = 0;
+		memSize = 0;
 	}
 
 	bitset<4> aluOpControl(bitset<3> funct3, bitset<7> funct7);
+	bitset<1> memSizeControl(bitset<3> funct3);
 	
 	bitset<1> branch;
 	bitset<1> memRead;
@@ -48,6 +50,7 @@ public:
 	bitset<1> memWrite;
 	bitset<1> aluSrc;
 	bitset<1> regWrite;
+	bitset<1> memSize; // 0 for byte, 1 for word
 	// add more later...
 };
 
@@ -83,7 +86,7 @@ public:
 	void writeBack();
 
 private:
-	unsigned long dmemory[4096]; 
+	bitset<8> dmemory[4096]; 
 	char imemory[4096]; 
 	unsigned long PC;
 	vector<bitset<32> > registers;
