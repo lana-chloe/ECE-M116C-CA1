@@ -21,6 +21,16 @@ bitset<32> hexToBin(char hex[9]) {
     }
     return instruction;
 }
+int32_t bitsetToSignedInt(const bitset<32>& bs) {
+    // Check the sign bit (bit 31)
+    if (bs[31] == 1) {
+        // If the sign bit is set, convert to signed integer by interpreting the bitset as a negative number
+        return static_cast<int32_t>(bs.to_ulong() | 0xFFFFFFFF00000000);
+    } else {
+        // If the sign bit is not set, convert to signed integer directly
+        return static_cast<int32_t>(bs.to_ulong());
+    }
+}
 
 
 ///////////////////////
@@ -49,11 +59,15 @@ bitset<32> Instruction::getImmediate() const {
 		// Sign extension
 		bitset<12> immValue = bitset<12>((instr.to_ulong() >> 20) & 0xFFF); // Extract bits 31-20
 		bitset<32> extendedImmValue;
-		if (immValue[11] == 1) { // Check the sign bit (bit 11)
+		if (immValue[11] == 1) { // Check the sign bit 
         	extendedImmValue = bitset<32>(immValue.to_ulong() | 0xFFFFF000); // Fill upper 20 bits with 1s
 		} else {
 			extendedImmValue = bitset<32>(immValue.to_ulong()); // Fill upper 20 bits with 0s
 		}
+		//cout << "Immediate: " << immValue << endl;
+		//cout << "Extended Immediate: " << extendedImmValue << endl;
+		// print as signed integer
+		//cout << "Extended Immediate (signed): " <<  bitsetToSignedInt(extendedImmValue) << endl;
 		return extendedImmValue;
 	} 
 	else if (opcode == OPCODE_STORE) {
@@ -71,14 +85,31 @@ bitset<32> Instruction::getImmediate() const {
 	else if (opcode == OPCODE_LUI) {
 		return bitset<32>((instr.to_ulong() >> 12) & 0xFFFFF); // Extract bits 31-12
 	}
-	/*
-	else if (opcode == OPCODE_STORE) {
-		return bitset<12>((instr.to_ulong() >> 7) & 0xFFF); // Extract bits 11-0
-	} 
 	else if (opcode == OPCODE_BRANCH) {
-		return bitset<12>((instr.to_ulong() >> 7) & 0xFFF); // Extract bits 11-0
-	} 
-	*/
+		// Extract bits 11, 4-1, 10-5
+		bitset<12> immValue = bitset<12>(((instr.to_ulong() >> 31) & 0x1) | ((instr.to_ulong() >> 7) & 0x1E) | ((instr.to_ulong() >> 25) & 0x3F) << 1);
+		bitset<32> extendedImmValue;
+		// Sign extension
+		if (immValue[11] == 1) { 
+			extendedImmValue = bitset<32>(immValue.to_ulong() | 0xFFFFF000); 
+		} else {
+			extendedImmValue = bitset<32>(immValue.to_ulong());
+		}
+		return extendedImmValue;
+	}
+	else if (opcode == OPCODE_J) {
+		// Extract bits 20, 10-1, 11, 19-12
+		bitset<21> immValue = bitset<21>(((instr.to_ulong() >> 31) & 0x1) << 20 | // Bit 20
+										((instr.to_ulong() >> 21) & 0x3FF) << 1 | // Bits 10-1
+										((instr.to_ulong() >> 20) & 0x1) << 11 | // Bit 11
+										((instr.to_ulong() >> 12) & 0xFF) << 12); // Bits 19-12
+		// Sign-extend the immediate value
+		if (immValue[20] == 1) { // Check the sign bit (bit 20)
+			return bitset<32>(immValue.to_ulong() | 0xFFE00000); // Fill upper 11 bits with 1s
+		} else {
+			return bitset<32>(immValue.to_ulong()); // Fill upper 11 bits with 0s
+		}
+	}
 	else {
 		cerr << "Invalid opcode: " << opcode << endl;
 		exit(1);
@@ -180,15 +211,18 @@ void CPU::executeInstruction() {
 
 	// ALU
 	if (control.aluOp == ALU_OP_ADD) {
-		aluResult = rs1Value.to_ulong() + aluSrcValue.to_ulong();
+		aluResult = rs1Value.to_ulong() + bitsetToSignedInt(aluSrcValue);
 	} 
 	else if (control.aluOp == ALU_OP_SUB) {
-		aluResult = rs1Value.to_ulong() - aluSrcValue.to_ulong();
+		aluResult = rs1Value.to_ulong() - bitsetToSignedInt(aluSrcValue);
 	} 
 	else if (control.aluOp == ALU_OP_LUI) {
         aluResult = bitset<32>(immValue.to_ulong() << 12);
 	} 
 	else if (control.aluOp == ALU_OP_OR) {
+		//cout << "OR" << endl;
+		//cout << rs1Value << endl;
+		//cout << aluSrcValue << endl;
 		aluResult = rs1Value | aluSrcValue;
 	} 
 	else if (control.aluOp == ALU_OP_XOR) {
@@ -204,51 +238,94 @@ void CPU::executeInstruction() {
 			aluResult = rs1Value.to_ulong() >> aluSrcValue.to_ulong();
 		}
 	}
+	else if (control.aluOp == ALU_OP_DEFAULT) {
+		return;
+	}
 	else {
 		cerr << "Invalid ALU operation: " << control.aluOp << endl;
 		exit(1);
 	}
 
-	cout << "aluResult: " << aluResult.to_ulong() << endl;
+	//
+
+	// Branch
+	if (control.branch == 1) {
+		//cout << "Branching" << endl;
+		//cout << "rs1Value: " << rs1Value.to_ulong() << endl;
+		//cout << "rs2Value: " << rs2Value.to_ulong() << endl;
+		if (aluResult == 0) {
+			//cout << "immValue: " << bitsetToSignedInt(immValue) << endl; 
+			//cout << "Old PC: " << PC << endl;
+			PC = ((PC - 8)/2 + bitsetToSignedInt(immValue)) * 2; // Adjust for the next instruction
+			
+			
+			//PC + immValue.to_ulong() - 4; // Adjust for the next instruction
+			//cout << "New PC: " << PC << endl;
+		}
+	}
+
+	//cout << "aluResult: " << bitsetToSignedInt(immValue) << endl;
 }
 void CPU::memory() {
+	// Branch
+	if (control.branch == 1) {
+		return;
+	}
+
 	unsigned long address = aluResult.to_ulong();
 	if (control.memWrite == 1) { // Store
         if (control.memSize == 1) { // SW
 			cout << "Store word" << endl;
             for (int i = 0; i < 4; ++i) {
-				cout << "Writing to address: " << address + i << " value: " << ((rs2Value.to_ulong() >> (i * 8)) & 0xFF) << endl;
+				//cout << "Writing to address: " << address + i << " value: " << ((rs2Value.to_ulong() >> (i * 8)) & 0xFF) << endl;
                 dmemory[address + i] = (rs2Value.to_ulong() >> (i * 8)) & 0xFF;
             }
         } else if (control.memSize == 0) { // SB
-			cout << "Store byte" << endl;
-			cout << "Writing to address: " << address << " value: " << (rs2Value.to_ulong() & 0xFF) << endl;
+			//cout << "Store byte" << endl;
+			//cout << "Writing to address: " << address << " value: " << (rs2Value.to_ulong() & 0xFF) << endl;
             dmemory[address] = rs2Value.to_ulong() & 0xFF;
         }
     }
 	else if (control.memRead == 1) { // Load
 		if (control.memSize == 1) { // LW
-			cout << "Load word" << endl;
+			//cout << "Load word" << endl;
 			for (int i = 0; i < 4; ++i) {
-				cout << "Reading from address: " << address + i << " value: " << dmemory[address + i].to_ulong() << endl;
+				//cout << "Reading from address: " << address + i << " value: " << dmemory[address + i].to_ulong() << endl;
 				dataMemValue |= (dmemory[address + i].to_ulong() & 0xFF) << (i * 8);
 			}
 		}
 		else if (control.memSize == 0) { // LB
-			cout << "Load byte" << endl;
-			cout << "Reading from address: " << address << " value: " << dmemory[address].to_ulong() << endl;
-			dataMemValue = dmemory[address].to_ulong() & 0xFF;
+			//cout << "Load byte" << endl;
+			//cout << "Reading from address: " << address << " value: " << dmemory[address].to_ulong() << endl;
+			unsigned char byteValue = dmemory[address].to_ulong() & 0xFF;
+			// Sign extension
+			if (byteValue & 0x80) {
+				dataMemValue = bitset<32>(byteValue | 0xFFFFFF00);
+			} else {
+				dataMemValue = bitset<32>(byteValue); 
+			}
 		}
 	}
 }
 void CPU::writeBack() {
+	// Branch and store
 	if (control.memWrite == 1) {
 		return;
 	}
 
 	if (control.memToReg == 0) {
 		if (control.regWrite == 1) {
-			writeRegister(rd.to_ulong(), aluResult);
+			if (control.jump == 1) {
+				//cout << "Jumping" << endl;
+				//cout << "immValue: " << bitsetToSignedInt(immValue) << endl;
+				//cout << "Old PC: " << PC << endl;
+				writeRegister(rd.to_ulong(), PC/2);
+
+				PC = ((PC - 8)/2 + bitsetToSignedInt(immValue)) * 2;
+
+			} else {
+				writeRegister(rd.to_ulong(), aluResult);
+			}
 		}
 	} 
 	else { 
@@ -269,6 +346,7 @@ ControlUnit::ControlUnit(bitset<7> opcode, bitset<3> funct3, bitset<7> funct7) {
 		memWrite = 0;
 		memToReg = 0;
 		memSize = 0;
+		jump = 0;
 
 		aluOp = aluOpControl(funct3, funct7);
 	}
@@ -280,6 +358,7 @@ ControlUnit::ControlUnit(bitset<7> opcode, bitset<3> funct3, bitset<7> funct7) {
 		memWrite = 0;
 		memToReg = 0;
 		memSize = 0;
+		jump = 0;
 
 		aluOp = aluOpControl(funct3, funct7);
 	}
@@ -291,6 +370,7 @@ ControlUnit::ControlUnit(bitset<7> opcode, bitset<3> funct3, bitset<7> funct7) {
         memWrite = 0;
         memToReg = 0;
 		memSize = 0;
+		jump = 0;
 
         aluOp = ALU_OP_LUI; 
     }
@@ -301,6 +381,7 @@ ControlUnit::ControlUnit(bitset<7> opcode, bitset<3> funct3, bitset<7> funct7) {
 		memRead = 1;
 		memWrite = 0;
 		memToReg = 1;
+		jump = 0;
 
 		memSize = memSizeControl(funct3);
 
@@ -313,6 +394,7 @@ ControlUnit::ControlUnit(bitset<7> opcode, bitset<3> funct3, bitset<7> funct7) {
 		memRead = 0;
 		memWrite = 1;
 		memToReg = 0;
+		jump = 0;
 
 		memSize = memSizeControl(funct3);
 
@@ -326,8 +408,21 @@ ControlUnit::ControlUnit(bitset<7> opcode, bitset<3> funct3, bitset<7> funct7) {
 		memWrite = 0;
 		memToReg = 0;
 		memSize = 0;
+		jump = 0;
 
 		aluOp = ALU_OP_SUB;
+	}
+	else if (opcode == OPCODE_J) { // JAL
+		regWrite = 1;
+		aluSrc = 0;
+		branch = 0;
+		memRead = 0;
+		memWrite = 0;
+		memToReg = 0;
+		memSize = 0;
+		jump = 1;
+
+		aluOp = ALU_OP_DEFAULT;
 	}
 	else if (opcode == OPCODE_DEFAULT) { // Default
 		regWrite = 0;
@@ -337,6 +432,7 @@ ControlUnit::ControlUnit(bitset<7> opcode, bitset<3> funct3, bitset<7> funct7) {
 		memWrite = 0;
 		memToReg = 0;
 		memSize = 0;
+		jump = 0;
 
 		aluOp = ALU_OP_DEFAULT;
 	}

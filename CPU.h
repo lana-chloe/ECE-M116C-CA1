@@ -15,6 +15,7 @@ const bitset<7> OPCODE_LOAD(0x03);   	// Load
 const bitset<7> OPCODE_STORE(0x23);  	// Store
 const bitset<7> OPCODE_BRANCH(0x63);	// Branch
 const bitset<7> OPCODE_LUI(0x37);    	// LUI
+const bitset<7> OPCODE_J(0x6F);      	// JAL
 const bitset<7> OPCODE_DEFAULT(0x00); 	// Default
 // ALU Operations
 const bitset<4> ALU_OP_ADD(0x2);     	// 0010: ADD
@@ -38,6 +39,7 @@ public:
 		aluSrc = 0;
 		regWrite = 0;
 		memSize = 0;
+		jump = 0;
 	}
 
 	bitset<4> aluOpControl(bitset<3> funct3, bitset<7> funct7);
@@ -51,6 +53,7 @@ public:
 	bitset<1> aluSrc;
 	bitset<1> regWrite;
 	bitset<1> memSize; // 0 for byte, 1 for word
+	bitset<1> jump; // 0 for no jump, 1 for jump
 	// add more later...
 };
 

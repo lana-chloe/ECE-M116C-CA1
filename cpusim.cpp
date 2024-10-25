@@ -50,7 +50,7 @@ int main(int argc, char* argv[]) {
 			i++;
 			line2>>x;
 			instMem[i] = x; // be careful about hex
-			cout<<instMem[i-1]<< instMem[i] <<endl; // prints instruction
+			//cout<<instMem[i-1]<< instMem[i] <<endl; // prints instruction
 			i++;
 		}
 	
