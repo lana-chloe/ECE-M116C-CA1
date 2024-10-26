@@ -1,0 +1,15 @@
+# Initialize registers with some values
+ori x5, x0, 176      # x5 = 176
+ori x6, x0, 114      # x6 = 114
+ori x7, x0, -2       # x7 = -2
+ori x8, x0, 5        # x8 = 5
+
+# Store word and byte with positive and negative offsets
+sb x5, 0(x0)          
+sb x6, 1(x0)          
+sb x7, 2(x0)
+sb x8, 3(x0)
+
+# Load word and byte with positive and negative offsets
+lw x10, 0(x0)          
+lb x11, 2(x0)          

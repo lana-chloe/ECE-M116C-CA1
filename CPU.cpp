@@ -1,5 +1,6 @@
 #include "CPU.h"
 #include <tuple>
+#include <cstdint>
 
 //////////////////////
 // HELPER FUNCTIONS //
@@ -72,7 +73,9 @@ bitset<32> Instruction::getImmediate() const {
 	} 
 	else if (opcode == OPCODE_STORE) {
 		// Extract bits 11-5 and 4-0
-		bitset<12> immValue = bitset<12>(((instr.to_ulong() >> 7) & 0x1F) | ((instr.to_ulong() >> 25) & 0xFE0));
+		bitset<12> immValue = bitset<12>(((instr.to_ulong() >> 7) & 0x1F) | ((instr.to_ulong() >> 25) << 5));
+		//cout << "instr: " << instr << endl;
+		//cout << "immValue: " << immValue << endl;
 		bitset<32> extendedImmValue;
 		// Sign extension
 		if (immValue[11] == 1) { 
@@ -80,22 +83,29 @@ bitset<32> Instruction::getImmediate() const {
 		} else {
 			extendedImmValue = bitset<32>(immValue.to_ulong());
 		}
+		//cout << "Immediate: " << immValue << endl;
+		//cout << "Extended Immediate: " << extendedImmValue << endl;
+		// print as signed integer
+		//cout << "Extended Immediate (signed): " <<  bitsetToSignedInt(extendedImmValue) << endl;
 		return extendedImmValue;
 	}
 	else if (opcode == OPCODE_LUI) {
 		return bitset<32>((instr.to_ulong() >> 12) & 0xFFFFF); // Extract bits 31-12
 	}
 	else if (opcode == OPCODE_BRANCH) {
-		// Extract bits 11, 4-1, 10-5
-		bitset<12> immValue = bitset<12>(((instr.to_ulong() >> 31) & 0x1) | ((instr.to_ulong() >> 7) & 0x1E) | ((instr.to_ulong() >> 25) & 0x3F) << 1);
-		bitset<32> extendedImmValue;
-		// Sign extension
-		if (immValue[11] == 1) { 
-			extendedImmValue = bitset<32>(immValue.to_ulong() | 0xFFFFF000); 
-		} else {
-			extendedImmValue = bitset<32>(immValue.to_ulong());
-		}
-		return extendedImmValue;
+    // Extract bits 12, 10-5, 4-1, 11
+    bitset<13> immValue = bitset<13>(((instr.to_ulong() >> 31) & 0x1) << 12 | // Bit 12
+                                     ((instr.to_ulong() >> 25) & 0x3F) << 5 | // Bits 10-5
+                                     ((instr.to_ulong() >> 8) & 0xF) << 1 |   // Bits 4-1
+                                     ((instr.to_ulong() >> 7) & 0x1) << 11);  // Bit 11
+    bitset<32> extendedImmValue;
+    // Sign extension
+    if (immValue[12] == 1) { 
+        extendedImmValue = bitset<32>(immValue.to_ulong() | 0xFFFFE000); 
+    } else {
+        extendedImmValue = bitset<32>(immValue.to_ulong());
+    }
+    return extendedImmValue;
 	}
 	else if (opcode == OPCODE_J) {
 		// Extract bits 20, 10-1, 11, 19-12
@@ -211,6 +221,8 @@ void CPU::executeInstruction() {
 
 	// ALU
 	if (control.aluOp == ALU_OP_ADD) {
+		//cout << "ADD" << endl;
+		//cout << rs1Value.to_ulong() << " + " << bitsetToSignedInt(aluSrcValue) << endl;
 		aluResult = rs1Value.to_ulong() + bitsetToSignedInt(aluSrcValue);
 	} 
 	else if (control.aluOp == ALU_OP_SUB) {
@@ -229,15 +241,12 @@ void CPU::executeInstruction() {
 		aluResult = rs1Value ^ aluSrcValue;
 	} 
 	else if (control.aluOp == ALU_OP_SRAI) {
-		//cout << "SRAI" << endl;
-		//cout << rs1Value.to_ulong() << " >> " << aluSrcValue.to_ulong() << endl;
-		// Sign extend
-		if (rs1Value[31] == 1) {
-			aluResult = (rs1Value.to_ulong() >> aluSrcValue.to_ulong()) | (0xFFFFFFFF << (32 - aluSrcValue.to_ulong()));
-		} else {
-			aluResult = rs1Value.to_ulong() >> aluSrcValue.to_ulong();
+		uint32_t shiftAmount = aluSrcValue.to_ulong() & 0x1F; // Only use the lower 5 bits for the shift amount
+
+		// Perform arithmetic right shift
+		int32_t signedRs1Value = static_cast<int32_t>(rs1Value.to_ulong());
+		aluResult = bitset<32>(signedRs1Value >> shiftAmount);
 		}
-	}
 	else if (control.aluOp == ALU_OP_DEFAULT) {
 		return;
 	}
@@ -251,10 +260,11 @@ void CPU::executeInstruction() {
 	// Branch
 	if (control.branch == 1) {
 		//cout << "Branching" << endl;
-		//cout << "rs1Value: " << rs1Value.to_ulong() << endl;
-		//cout << "rs2Value: " << rs2Value.to_ulong() << endl;
+		//cout << "rs1Value: " << bitsetToSignedInt(rs1Value) << endl;
+		//cout << "rs2Value: " << bitsetToSignedInt(rs2Value) << endl;
 		if (aluResult == 0) {
-			//cout << "immValue: " << bitsetToSignedInt(immValue) << endl; 
+			//cout << "immValue (binary): " << immValue << endl;
+			//cout << "immValue (decimal): " << bitsetToSignedInt(immValue) << endl; 
 			//cout << "Old PC: " << PC << endl;
 			PC = ((PC - 8)/2 + bitsetToSignedInt(immValue)) * 2; // Adjust for the next instruction
 			
@@ -264,7 +274,7 @@ void CPU::executeInstruction() {
 		}
 	}
 
-	//cout << "aluResult: " << bitsetToSignedInt(immValue) << endl;
+	//cout << "aluResult: " << bitsetToSignedInt(aluResult) << endl;
 }
 void CPU::memory() {
 	// Branch
@@ -275,14 +285,17 @@ void CPU::memory() {
 	unsigned long address = aluResult.to_ulong();
 	if (control.memWrite == 1) { // Store
         if (control.memSize == 1) { // SW
-			cout << "Store word" << endl;
-            for (int i = 0; i < 4; ++i) {
-				//cout << "Writing to address: " << address + i << " value: " << ((rs2Value.to_ulong() >> (i * 8)) & 0xFF) << endl;
+			//cout << "Store word" << endl;
+			//cout << "value (decimal): " << bitsetToSignedInt(rs2Value) << endl;
+			//cout << "value (binary): " << rs2Value << endl;
+            for (int i = 3; i >= 0; --i) {
+				//cout << "Writing to address: " << address + i << " value (binary): " << bitset<8>((rs2Value.to_ulong() >> (i * 8)) & 0xFF) << endl;
                 dmemory[address + i] = (rs2Value.to_ulong() >> (i * 8)) & 0xFF;
             }
         } else if (control.memSize == 0) { // SB
 			//cout << "Store byte" << endl;
-			//cout << "Writing to address: " << address << " value: " << (rs2Value.to_ulong() & 0xFF) << endl;
+			//cout << "value (binary): " << rs2Value << endl;
+			//cout << "Writing to address: " << address << " byte (decimal): " << (rs2Value.to_ulong() & 0xFF) << " byte (binary): " << bitset<8>(rs2Value.to_ulong() & 0xFF) << endl;
             dmemory[address] = rs2Value.to_ulong() & 0xFF;
         }
     }

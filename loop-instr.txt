@@ -1,0 +1,16 @@
+# Initialize registers
+ori x5, x0, 10        # x5 = 10 (loop counter)
+ori x6, x0, -1         # x6 = 1 (decrement value)
+ori x7, x0, 0         # x7 = 0 (zero for comparison)
+
+# Loop start
+beq x5, x7, 20        # If x5 == 0, jump to the end (PC + 20)
+add x10, x10, x6      # Increment x10 by 1
+add x11, x11, x6      # Increment x11 by 1
+add x5, x5, x6        # Decrement x5 by 1
+jal x0, -16           # Jump back to the start of the loop (PC - 16)
+
+# End of loop
+ori x8, x0, 1         
+
+(a0,a1) = (-10,-10)

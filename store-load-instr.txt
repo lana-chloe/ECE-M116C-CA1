@@ -1,0 +1,19 @@
+# Initialize registers with some values
+ori x5, x0, 154        # x5 = 154
+ori x6, x0, 1          # x6 = 1
+ori x7, x0, 2          # x7 = 2
+
+# Perform some arithmetic operations
+add x28, x6, x7        # x28 = x6 + x7 = 1 + 2 = 3
+add x29, x28, x28      # x29 = x28 + x28 = 3 + 3 = 6
+
+# Store word and byte with positive and negative offsets
+sw x5, 0(x0)           # Store x5 (154) at memory address 0
+sb x6, 4(x0)           # Store x6 (1) at memory address 4
+sw x7, -2(x29)         # Store x7 (2) at memory address (x29 - 4) = 6 - 2 = 4
+
+# Load word and byte with positive and negative offsets
+lw x10, 0(x0)          # Load word from memory address 0 into x10 (should be 154)
+lb x11, 4(x0)          # Load byte from memory address 4 into x11 (should be 2)
+
+(a0,a1) = (154,2)
