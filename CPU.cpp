@@ -1,6 +1,5 @@
 #include "CPU.h"
 #include <tuple>
-#include <cstdint>
 
 //////////////////////
 // HELPER FUNCTIONS //
@@ -113,12 +112,15 @@ bitset<32> Instruction::getImmediate() const {
 										((instr.to_ulong() >> 21) & 0x3FF) << 1 | // Bits 10-1
 										((instr.to_ulong() >> 20) & 0x1) << 11 | // Bit 11
 										((instr.to_ulong() >> 12) & 0xFF) << 12); // Bits 19-12
+		bitset<32> extendedImmValue;
 		// Sign-extend the immediate value
 		if (immValue[20] == 1) { // Check the sign bit (bit 20)
-			return bitset<32>(immValue.to_ulong() | 0xFFE00000); // Fill upper 11 bits with 1s
+			extendedImmValue = bitset<32>(immValue.to_ulong() | 0xFFE00000); // Fill upper 11 bits with 1s
 		} else {
-			return bitset<32>(immValue.to_ulong()); // Fill upper 11 bits with 0s
+			extendedImmValue = bitset<32>(immValue.to_ulong()); // Fill upper 11 bits with 0s
 		}
+		//cout << "Jump Imm value (decimal): " << bitsetToSignedInt(extendedImmValue) << endl;
+		return extendedImmValue;
 	}
 	else {
 		cerr << "Invalid opcode: " << opcode << endl;
@@ -174,6 +176,7 @@ bitset<32> CPU::readRegister(unsigned long regNum) {
 	return registers[regNum];
 }
 void CPU::writeRegister(int regNum, bitset<32> value) {
+	if (regNum == 0) return; // x0 is hardwired to 0
 	registers[regNum] = value;
 }
 bitset<32> CPU::instructionFetch() {
@@ -297,15 +300,19 @@ void CPU::memory() {
 			//cout << "value (binary): " << rs2Value << endl;
 			//cout << "Writing to address: " << address << " byte (decimal): " << (rs2Value.to_ulong() & 0xFF) << " byte (binary): " << bitset<8>(rs2Value.to_ulong() & 0xFF) << endl;
             dmemory[address] = rs2Value.to_ulong() & 0xFF;
+			//cout << dmemory[address] << endl;
         }
     }
 	else if (control.memRead == 1) { // Load
+		dataMemValue = bitset<32>(0);
 		if (control.memSize == 1) { // LW
 			//cout << "Load word" << endl;
 			for (int i = 0; i < 4; ++i) {
 				//cout << "Reading from address: " << address + i << " value: " << dmemory[address + i].to_ulong() << endl;
 				dataMemValue |= (dmemory[address + i].to_ulong() & 0xFF) << (i * 8);
+				//cout << dataMemValue << endl;
 			}
+			//cout << bitsetToSignedInt(dataMemValue) << endl;
 		}
 		else if (control.memSize == 0) { // LB
 			//cout << "Load byte" << endl;
